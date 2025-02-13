@@ -8,25 +8,39 @@ export function disableChunks(): Plugin {
     name: "vite-plugin-vercel:disable-chunks",
     apply: "build",
     enforce: "pre",
-    async resolveId(source, importer, options) {
-      if (
-        !source.startsWith("virtual:vite-plugin-vercel:entry") &&
-        (this.environment.name === "vercel_node" || this.environment.name === "vercel_edge")
-      ) {
-        const resolved = await this.resolve(source, importer, options);
 
-        if (resolved && !resolved.external && !resolved.attributes.unique) {
-          // Reuse importer UUID if it exists
-          const match = importer?.match(/\?unique=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
-          const uuid = match?.[1] ?? randomUUID();
-          return {
-            id: `${resolved.id}?unique=${uuid}`,
-            attributes: {
-              unique: uuid,
-            },
-          };
-        }
+    applyToEnvironment(env) {
+      return env.name === "vercel_node" || env.name === "vercel_edge";
+    },
+
+    async resolveId(source, importer, options) {
+      if (source.startsWith("virtual:")) return;
+
+      const resolved = await this.resolve(source, importer, options);
+
+      if (resolved && !resolved.external && !resolved.meta.unique) {
+        // FIXME those cause weird Vite Errors:
+        //   Another solution is to call `esbuild` to bundle each generated function separately
+        // * Error during build: Unexpected early exit.
+        // * This happens when Promises returned by plugins cannot resolve. Unfinished hook action(s) on exit
+        if (resolved.id.includes("react")) return;
+        if (resolved.id.includes("vike")) return;
+        if (resolved.id.includes("/renderer")) return;
+        // console.log(source);
+
+        // Reuse importer UUID if it exists
+        const match = importer?.match(/\?unique=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
+        const uuid = match?.[1] ?? randomUUID();
+        return {
+          ...resolved,
+          id: `${resolved.id}?unique=${uuid}`,
+          meta: {
+            ...resolved.meta,
+            unique: uuid,
+          },
+        };
       }
+      return resolved;
     },
     // TODO
     // resolveDynamicImport(specifier, importer) {
